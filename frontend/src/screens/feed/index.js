@@ -1,84 +1,82 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Dimensions, FlatList, View } from 'react-native'
 import useMaterialNavBarHeight from '../../hooks/useMaterialNavBarHeight'
 import PostSingle from '../../components/general/post'
 import { getFeed, getPostsByUserId } from '../../services/posts'
 import styles from './styles'
 
-/**
- * Component that renders a list of posts meant to be 
- * used for the feed screen.
- * 
- * On start make fetch for posts then use a flatList 
- * to display/control the posts.
- */
 export default function FeedScreen({ route }) {
     const { setCurrentUserProfileItemInView, creator, profile } = route.params
     const [posts, setPosts] = useState([])
-    const mediaRefs = useRef([])
+    const mediaRefs = useRef({})
 
     useEffect(() => {
-        if (profile) {
-            getPostsByUserId(creator).then(setPosts)
-        } else {
-            getFeed().then(setPosts)
-        }
-    }, [])
+        const loadPosts = profile
+            ? getPostsByUserId(creator)
+            : getFeed()
 
+        loadPosts.then(setPosts)
+    }, [creator, profile])
 
-    /**
-     * Called any time a new post is shown when a user scrolls
-     * the FlatList, when this happens we should start playing 
-     * the post that is viewable and stop all the others
-     */
-    const onViewableItemsChanged = useRef(({ changed }) => {
-        changed.forEach(element => {
-            const cell = mediaRefs.current[element.key]
-            if (cell) {
-                if (element.isViewable) {
-                    if (!profile) {
-                        setCurrentUserProfileItemInView(element.item.creator)
-                    }
-                    cell.play()
-                } else {
-                    cell.stop()
-                }
+    const onViewableItemsChanged = useRef(({ viewableItems }) => {
+        const visibleKeys = new Set(
+            viewableItems
+                .filter(item => item.isViewable)
+                .map(item => item.key)
+        )
+
+        Object.keys(mediaRefs.current).forEach(key => {
+            const cell = mediaRefs.current[key]
+            if (!cell) return
+
+            if (visibleKeys.has(key)) {
+                cell.play()
+            } else {
+                cell.stop()
             }
+        })
 
-        });
+        const focusedItem = viewableItems.find(item => item.isViewable)
+        if (focusedItem && !profile) {
+            setCurrentUserProfileItemInView(focusedItem.item.creator)
+        }
     })
 
-    const feedItemHeight = Dimensions.get('window').height - useMaterialNavBarHeight(profile);
-    /**
-     * renders the item shown in the FlatList
-     * 
-     * @param {Object} item object of the post 
-     * @param {Integer} index position of the post in the FlatList 
-     * @returns 
-     */
-    const renderItem = ({ item, index }) => {
-        return (
-            <View style={{ height: feedItemHeight, backgroundColor: 'black' }}>
-                <PostSingle item={item} ref={PostSingleRef => (mediaRefs.current[item.id] = PostSingleRef)} />
-            </View>
-        )
-    }
+    const feedItemHeight = Dimensions.get('window').height - useMaterialNavBarHeight(profile)
+
+    const renderItem = useCallback(({ item }) => (
+        <View style={{ height: feedItemHeight, backgroundColor: 'black' }}>
+            <PostSingle
+                item={item}
+                ref={cell => {
+                    if (cell) mediaRefs.current[item.id] = cell
+                    else delete mediaRefs.current[item.id]
+                }}
+            />
+        </View>
+    ), [feedItemHeight])
 
     return (
         <View style={styles.container}>
             <FlatList
                 data={posts}
-                windowSize={4}
-                initialNumToRender={0}
+                windowSize={5}
+                initialNumToRender={2}
                 maxToRenderPerBatch={2}
+                updateCellsBatchingPeriod={50}
                 removeClippedSubviews
                 viewabilityConfig={{
-                    itemVisiblePercentThreshold: 0
+                    itemVisiblePercentThreshold: 60,
+                    waitForInteraction: false,
+                    minimumViewTime: 100
                 }}
                 renderItem={renderItem}
                 pagingEnabled
+                snapToInterval={feedItemHeight}
+                snapToAlignment="start"
+                decelerationRate="fast"
+                showsVerticalScrollIndicator={false}
                 keyExtractor={item => item.id}
-                decelerationRate={'normal'}
                 onViewableItemsChanged={onViewableItemsChanged.current}
             />
         </View>
