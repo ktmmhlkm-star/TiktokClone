@@ -1,0 +1,50 @@
+name: Build Maram Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maram-android-apk
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    name: Build and upload APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+
+      - name: Build Android APK
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform android --profile preview --non-interactive --wait --json > eas-build.json
+
+      - name: Download the APK from this build
+        run: |
+          BUILD_URL="$(jq -er 'if type == "array" then .[0].artifacts.buildUrl else .artifacts.buildUrl end' eas-build.json)"
+          curl --fail --location --retry 3 "$BUILD_URL" --output maram.apk
+          test -s maram.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maram-android-apk
+          path: frontend/maram.apk
+          if-no-files-found: error
+          retention-days: 7
